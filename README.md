@@ -41,6 +41,8 @@ export LOCAL_LLM_BASE_URL=http://localhost:8000/v1
 export LOCAL_LLM_MODEL=Qwen/Qwen3-32B
 ```
 
+Alternatively, the server auto-detects a running vLLM process via `ps aux`, so no env vars are needed if vLLM is already started.
+
 ## Tools
 
 ### `web_fetch`

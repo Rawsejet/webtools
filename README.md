@@ -23,8 +23,8 @@ Register the MCP server in `~/.claude/mcp.json`:
 {
   "mcpServers": {
     "webtools": {
-      "command": "conda",
-      "args": ["run", "-n", "webtools", "python", "<path-to-webtools>/server.py"]
+      "command": "<path-to-python>",
+      "args": ["<path-to-webtools>/server.py"]
     }
   }
 }

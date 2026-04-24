@@ -8,12 +8,10 @@ import subprocess
 from bs4 import BeautifulSoup
 from duckduckgo_search import DDGS
 from mcp.server import Server
-from mcp.types import TextContent
+from mcp.types import TextContent, Tool, CallToolResult
 from openai import AsyncOpenAI
 from playwright.async_api import async_playwright
 
-
-_LOCAL_LLM_CACHE = None
 
 MAX_FETCH_CHARS = 30000
 MAX_SEARCH_RESULTS = 5
@@ -21,17 +19,11 @@ MAX_SEARCH_PAGE_CHARS = 15000
 
 
 def detect_vllm():
-    """Auto-detect vLLM port and model from the running process."""
-    global _LOCAL_LLM_CACHE
-    if _LOCAL_LLM_CACHE:
-        return _LOCAL_LLM_CACHE
-
+    """Detect vLLM port and model from environment or running process."""
     env_url = os.environ.get("LOCAL_LLM_BASE_URL")
     env_model = os.environ.get("LOCAL_LLM_MODEL")
-
     if env_url and env_model:
-        _LOCAL_LLM_CACHE = env_url, env_model
-        return _LOCAL_LLM_CACHE
+        return env_url, env_model
 
     try:
         result = subprocess.run(
@@ -42,17 +34,13 @@ def detect_vllm():
                 m_port = re.search(r"--port\s+(\d+)", line)
                 m_model = re.search(r"--served-model-name\s+(\S+)", line)
                 port = m_port.group(1) if m_port else "8000"
-                model = m_model.group(1) if m_model else os.environ.get(
-                    "LOCAL_LLM_MODEL", "Qwen3-32B"
-                )
-                _LOCAL_LLM_CACHE = f"http://localhost:{port}/v1", model
-                return _LOCAL_LLM_CACHE
+                model = m_model.group(1) if m_model else "Qwen3-32B"
+                return f"http://localhost:{port}/v1", model
     except Exception:
         pass
 
-    default = "http://localhost:8000/v1", os.environ.get("LOCAL_LLM_MODEL", "Qwen3-32B")
-    _LOCAL_LLM_CACHE = default
-    return default
+    return "http://localhost:8000/v1", "Qwen3-32B"
+
 
 SUMMARIZE_SYSTEM = (
     "You are a research assistant. You receive web page content and a user prompt. "
@@ -103,7 +91,7 @@ async def fetch_page_text(url: str) -> str:
     page = await context.new_page()
     try:
         await page.goto(url, timeout=15000, wait_until="domcontentloaded")
-        await asyncio.sleep(1)  # brief wait for lazy content
+        await asyncio.sleep(1)
         html = await page.content()
         text = extract_text_from_html(html)
         if len(text) > MAX_FETCH_CHARS:
@@ -129,61 +117,71 @@ async def call_local_llm(system: str, user: str) -> str:
     return response.choices[0].message.content or ""
 
 
+WEB_FETCH_TOOL = Tool(
+    name="web_fetch",
+    description=(
+        "Fetch a webpage and extract information relevant to a prompt. "
+        "Uses Playwright to load the page, then summarizes the content "
+        "via a local LLM based on the given prompt."
+    ),
+    inputSchema={
+        "type": "object",
+        "properties": {
+            "url": {
+                "type": "string",
+                "description": "The URL to fetch content from",
+            },
+            "prompt": {
+                "type": "string",
+                "description": "What to extract or find on the page",
+            },
+        },
+        "required": ["url", "prompt"],
+        "additionalProperties": False,
+    },
+)
+
+WEB_SEARCH_TOOL = Tool(
+    name="web_search",
+    description=(
+        "Search the web via DuckDuckGo, fetch top results, and summarize "
+        "relevant findings via a local LLM. Returns concise results without "
+        "filling the context with raw page dumps."
+    ),
+    inputSchema={
+        "type": "object",
+        "properties": {
+            "query": {
+                "type": "string",
+                "description": "The search query",
+            },
+            "prompt": {
+                "type": "string",
+                "description": "What to find or extract from the search results",
+            },
+            "max_results": {
+                "type": "integer",
+                "description": "Number of top results to fetch (default 3, max 5)",
+                "default": 3,
+            },
+        },
+        "required": ["query", "prompt"],
+        "additionalProperties": False,
+    },
+)
+
+
 @server.list_tools()
 async def list_tools():
-    return [
-        {
-            "name": "web_fetch",
-            "description": "Fetch a webpage and extract information relevant to a prompt. "
-                           "Uses Playwright to load the page, then summarizes the content "
-                           "via a local LLM based on the given prompt.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "url": {
-                        "type": "string",
-                        "description": "The URL to fetch content from",
-                    },
-                    "prompt": {
-                        "type": "string",
-                        "description": "What to extract or find on the page",
-                    },
-                },
-                "required": ["url", "prompt"],
-                "additionalProperties": False,
-            },
-        },
-        {
-            "name": "web_search",
-            "description": "Search the web via DuckDuckGo, fetch top results, and summarize "
-                           "relevant findings via a local LLM. Returns concise results without "
-                           "filling the context with raw page dumps.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "The search query",
-                    },
-                    "prompt": {
-                        "type": "string",
-                        "description": "What to find or extract from the search results",
-                    },
-                    "max_results": {
-                        "type": "integer",
-                        "description": "Number of top results to fetch (default 3, max 5)",
-                        "default": 3,
-                    },
-                },
-                "required": ["query", "prompt"],
-                "additionalProperties": False,
-            },
-        },
-    ]
+    return [WEB_FETCH_TOOL, WEB_SEARCH_TOOL]
+
+
+def ok(text: str) -> CallToolResult:
+    return CallToolResult(content=[TextContent(type="text", text=text)])
 
 
 @server.call_tool()
-async def call_tool(name: str, arguments: dict):
+async def call_tool(name: str, arguments: dict) -> CallToolResult:
     if name == "web_fetch":
         url = arguments["url"]
         prompt = arguments["prompt"]
@@ -191,7 +189,7 @@ async def call_tool(name: str, arguments: dict):
         text = await fetch_page_text(url)
 
         if not text.strip():
-            return [TextContent(type="text", text=f"Failed to extract content from {url}")]
+            return ok(f"Failed to extract content from {url}")
 
         user_msg = (
             f"Prompt: {prompt}\n\n"
@@ -199,31 +197,28 @@ async def call_tool(name: str, arguments: dict):
             f"Page content:\n{text}"
         )
         summary = await call_local_llm(SUMMARIZE_SYSTEM, user_msg)
-        return [TextContent(type="text", text=summary)]
+        return ok(summary)
 
     elif name == "web_search":
         query = arguments["query"]
         prompt = arguments["prompt"]
         max_results = min(arguments.get("max_results", 3), MAX_SEARCH_RESULTS)
 
-        # Step 1: Get search results from DuckDuckGo
         with DDGS() as ddgs:
             results = list(ddgs.text(query, max_results=max_results))
 
         if not results:
-            return [TextContent(type="text", text=f"No search results found for: {query}")]
+            return ok(f"No search results found for: {query}")
 
-        # Step 2: Fetch page text for top results
         pages = []
-        for i, r in enumerate(results[:max_results]):
+        for r in results[:max_results]:
             title = r.get("title", "")
             snippet = r.get("body", r.get("description", ""))
             url = r.get("href", "")
             pages.append({"title": title, "snippet": snippet, "url": url})
 
-        # Fetch actual page content (limit to first 2 to save time)
         fetched_texts = []
-        for i, page in enumerate(pages[:2]):
+        for page in pages[:2]:
             try:
                 text = await fetch_page_text(page["url"])
                 if len(text) > MAX_SEARCH_PAGE_CHARS:
@@ -232,7 +227,6 @@ async def call_tool(name: str, arguments: dict):
             except Exception as e:
                 fetched_texts.append(f"[Error fetching {page['url']}: {e}]")
 
-        # Step 3: Build context for LLM
         sections = []
         for i, page in enumerate(pages):
             section = (
@@ -252,10 +246,13 @@ async def call_tool(name: str, arguments: dict):
             + "\n\n---\n\n".join(sections)
         )
         summary = await call_local_llm(SEARCH_SYSTEM, user_msg)
-        return [TextContent(type="text", text=summary)]
+        return ok(summary)
 
     else:
-        raise ValueError(f"Unknown tool: {name}")
+        return CallToolResult(
+            content=[TextContent(type="text", text=f"Unknown tool: {name}")],
+            isError=True,
+        )
 
 
 async def main():

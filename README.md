@@ -17,29 +17,38 @@ conda run -n webtools playwright install chromium
 
 ## Configuration
 
-Register the MCP server in `~/.claude/mcp.json`:
+Register the MCP server in `~/.claude/mcp.json` using the wrapper script:
+
+```json
+{
+  "mcpServers": {
+    "webtools": {
+      "command": "<path-to-webtools>/start-server.sh"
+    }
+  }
+}
+```
+
+The wrapper script (`start-server.sh`) detects a running vLLM process via `ps aux` at startup, extracts `--port` and `--served-model-name`, and sets `LOCAL_LLM_BASE_URL` and `LOCAL_LLM_MODEL` before launching `server.py`. This handles random vLLM ports without manual config.
+
+To use fixed env vars instead (e.g. when running multiple LLMs), register `server.py` directly with env overrides:
 
 ```json
 {
   "mcpServers": {
     "webtools": {
       "command": "<path-to-python>",
-      "args": ["<path-to-webtools>/server.py"]
+      "args": ["<path-to-webtools>/server.py"],
+      "env": {
+        "LOCAL_LLM_BASE_URL": "http://localhost:8000/v1",
+        "LOCAL_LLM_MODEL": "Qwen/Qwen3-32B"
+      }
     }
   }
 }
 ```
 
-That's it. The server auto-detects a running vLLM process via `ps aux` at call time — no env vars needed.
-
-To override the detected port or model, set env vars in `mcp.json` or in your shell:
-
-```json
-"env": {
-  "LOCAL_LLM_BASE_URL": "http://localhost:8000/v1",
-  "LOCAL_LLM_MODEL": "Qwen/Qwen3-32B"
-}
-```
+> **Note:** The server requires a running vLLM process. If no vLLM server is detected at startup, the wrapper script exits with an error and the MCP tools won't be available.
 
 > **Tip:** When using Claude models that support Anthropic's built-in `web_fetch` and `web_search`, prefer those over this local server. Tell Claude Code to use Anthropic's tools first and fall back to this server only when those aren't available — the cloud tools are more reliable and don't need a local LLM.
 
@@ -71,10 +80,20 @@ Searches DuckDuckGo, fetches top results, and summarizes findings.
 
 The intermediate LLM call filters noise before content reaches the coding agent's context window.
 
-## Debugging
+## Troubleshooting
+
+Check that a vLLM server is running:
 
 ```bash
-conda run -n webtools python /home/teja/webtools/server.py
+ps aux | grep 'vllm' | grep 'serve'
 ```
+
+Test the wrapper detection manually:
+
+```bash
+bash <path-to-webtools>/start-server.sh
+```
+
+It should launch without error. If it prints `ERROR: No running vLLM server found`, start your vLLM server first.
 
 Restart Claude Code after any config changes to pick up the MCP server.

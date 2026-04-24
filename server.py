@@ -113,9 +113,9 @@ async def call_local_llm(system: str, user: str) -> str:
         ],
         max_tokens=2048,
         temperature=0.3,
+        extra_body={"chat_template_kwargs": {"enable_thinking": False}},
     )
-    msg = response.choices[0].message
-    return msg.content or getattr(msg, "reasoning_content", None) or ""
+    return response.choices[0].message.content or ""
 
 
 WEB_FETCH_TOOL = Tool(

@@ -23,8 +23,8 @@ Register the MCP server in `~/.claude/mcp.json`:
 {
   "mcpServers": {
     "webtools": {
-      "command": "/home/teja/miniconda3/envs/webtools/bin/python",
-      "args": ["/home/teja/webtools/server.py"]
+      "command": "conda",
+      "args": ["run", "-n", "webtools", "python", "<path-to-webtools>/server.py"]
     }
   }
 }

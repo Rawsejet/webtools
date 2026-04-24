@@ -17,31 +17,29 @@ conda run -n webtools playwright install chromium
 
 ## Configuration
 
-Edit `~/.claude/mcp.json` to point at your local LLM:
+Register the MCP server in `~/.claude/mcp.json`:
 
 ```json
 {
   "mcpServers": {
     "webtools": {
       "command": "/home/teja/miniconda3/envs/webtools/bin/python",
-      "args": ["/home/teja/webtools/server.py"],
-      "env": {
-        "LOCAL_LLM_BASE_URL": "http://localhost:8000/v1",
-        "LOCAL_LLM_MODEL": "Qwen/Qwen3-32B"
-      }
+      "args": ["/home/teja/webtools/server.py"]
     }
   }
 }
 ```
 
-Or use environment variables instead of the `env` block:
+That's it. The server auto-detects a running vLLM process via `ps aux` at call time — no env vars needed.
 
-```bash
-export LOCAL_LLM_BASE_URL=http://localhost:8000/v1
-export LOCAL_LLM_MODEL=Qwen/Qwen3-32B
+To override the detected port or model, set env vars in `mcp.json` or in your shell:
+
+```json
+"env": {
+  "LOCAL_LLM_BASE_URL": "http://localhost:8000/v1",
+  "LOCAL_LLM_MODEL": "Qwen/Qwen3-32B"
+}
 ```
-
-Alternatively, the server auto-detects a running vLLM process via `ps aux`, so no env vars are needed if vLLM is already started.
 
 ## Tools
 

@@ -2,5 +2,5 @@ playwright
 mcp
 anthropic
 beautifulsoup4
-duckduckgo-search
+ddgs
 openai

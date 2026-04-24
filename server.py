@@ -6,7 +6,7 @@ import re
 import subprocess
 
 from bs4 import BeautifulSoup
-from duckduckgo_search import DDGS
+from ddgs import DDGS
 from mcp.server import Server
 from mcp.types import TextContent, Tool, CallToolResult
 from openai import AsyncOpenAI
@@ -114,7 +114,8 @@ async def call_local_llm(system: str, user: str) -> str:
         max_tokens=2048,
         temperature=0.3,
     )
-    return response.choices[0].message.content or ""
+    msg = response.choices[0].message
+    return msg.content or getattr(msg, "reasoning_content", None) or ""
 
 
 WEB_FETCH_TOOL = Tool(

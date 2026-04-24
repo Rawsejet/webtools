@@ -16,14 +16,8 @@ conda run -n webtools pip install -r requirements.txt
 conda run -n webtools playwright install chromium
 ```
 
-## Configuration
+The MCP server is registered in `~/.claude/mcp.json` using the `start-server.sh` wrapper, which auto-detects a running vLLM process and sets `LOCAL_LLM_BASE_URL` and `LOCAL_LLM_MODEL` before launching `server.py`. Restart Claude Code after config changes.
 
-Two environment variables control the local LLM connection (set in `~/.claude/mcp.json` under the `webtools` entry):
-
-- `LOCAL_LLM_BASE_URL` — OpenAI-compatible endpoint (default: `http://localhost:8000/v1`)
-- `LOCAL_LLM_MODEL` — model ID to use (default: `Qwen/Qwen3-32B`)
-
-The MCP server is registered in `~/.claude/mcp.json`. Restart Claude Code after config changes.
 
 ## Architecture
 
@@ -39,6 +33,7 @@ Single file: `server.py`. Runs as a stdio MCP server.
 - **web_fetch**: URL + prompt → Playwright navigate → extract text → call local LLM with SUMMARIZE_SYSTEM → return summary
 - **web_search**: query + prompt → DuckDuckGo `DDGS.text()` → collect result metadata → fetch top 2 pages → build combined context → call local LLM with SEARCH_SYSTEM → return summary
 
-## Known Issues
+## Notes
 
-- `call_local_llm()` imports `AsyncAnthropic` but only uses `AsyncOpenAI`. The Anthropic client is created and immediately closed — dead code that can be removed.
+- `server.py` uses MCP SDK 1.27.0 `Tool` and `CallToolResult` types (not raw dicts).
+- `detect_vllm()` has no caching — the wrapper script sets env vars at startup.

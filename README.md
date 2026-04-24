@@ -41,6 +41,8 @@ To override the detected port or model, set env vars in `mcp.json` or in your sh
 }
 ```
 
+> **Tip:** When using Claude models that support Anthropic's built-in `web_fetch` and `web_search`, prefer those over this local server. Tell Claude Code to use Anthropic's tools first and fall back to this server only when those aren't available — the cloud tools are more reliable and don't need a local LLM.
+
 ## Tools
 
 ### `web_fetch`

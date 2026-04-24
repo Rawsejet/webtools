@@ -3,22 +3,56 @@
 import asyncio
 import os
 import re
-from pathlib import Path
+import subprocess
 
-from anthropic import AsyncAnthropic
 from bs4 import BeautifulSoup
 from duckduckgo_search import DDGS
 from mcp.server import Server
 from mcp.types import TextContent
+from openai import AsyncOpenAI
 from playwright.async_api import async_playwright
 
 
-LOCAL_LLM_BASE_URL = os.environ.get("LOCAL_LLM_BASE_URL", "http://localhost:8000/v1")
-LOCAL_LLM_MODEL = os.environ.get("LOCAL_LLM_MODEL", "Qwen/Qwen3-32B")
+_LOCAL_LLM_CACHE = None
 
 MAX_FETCH_CHARS = 30000
 MAX_SEARCH_RESULTS = 5
 MAX_SEARCH_PAGE_CHARS = 15000
+
+
+def detect_vllm():
+    """Auto-detect vLLM port and model from the running process."""
+    global _LOCAL_LLM_CACHE
+    if _LOCAL_LLM_CACHE:
+        return _LOCAL_LLM_CACHE
+
+    env_url = os.environ.get("LOCAL_LLM_BASE_URL")
+    env_model = os.environ.get("LOCAL_LLM_MODEL")
+
+    if env_url and env_model:
+        _LOCAL_LLM_CACHE = env_url, env_model
+        return _LOCAL_LLM_CACHE
+
+    try:
+        result = subprocess.run(
+            ["ps", "aux"], capture_output=True, text=True, timeout=5
+        )
+        for line in result.stdout.splitlines():
+            if "vllm" in line and "serve" in line and "grep" not in line:
+                m_port = re.search(r"--port\s+(\d+)", line)
+                m_model = re.search(r"--served-model-name\s+(\S+)", line)
+                port = m_port.group(1) if m_port else "8000"
+                model = m_model.group(1) if m_model else os.environ.get(
+                    "LOCAL_LLM_MODEL", "Qwen3-32B"
+                )
+                _LOCAL_LLM_CACHE = f"http://localhost:{port}/v1", model
+                return _LOCAL_LLM_CACHE
+    except Exception:
+        pass
+
+    default = "http://localhost:8000/v1", os.environ.get("LOCAL_LLM_MODEL", "Qwen3-32B")
+    _LOCAL_LLM_CACHE = default
+    return default
 
 SUMMARIZE_SYSTEM = (
     "You are a research assistant. You receive web page content and a user prompt. "
@@ -81,18 +115,10 @@ async def fetch_page_text(url: str) -> str:
 
 async def call_local_llm(system: str, user: str) -> str:
     """Send a request to the local LLM and return the response text."""
-    client = AsyncAnthropic(
-        base_url=LOCAL_LLM_BASE_URL,
-        api_key="none",
-    )
-    # Use compatibility mode for vLLM — it speaks OpenAI format.
-    # But we also need to handle if it supports Anthropic messages.
-    # Let's try the OpenAI-compatible chat completions endpoint instead.
-    from openai import AsyncOpenAI
-
-    openai_client = AsyncOpenAI(base_url=LOCAL_LLM_BASE_URL, api_key="none")
-    response = await openai_client.chat.completions.create(
-        model=LOCAL_LLM_MODEL,
+    base_url, model = detect_vllm()
+    client = AsyncOpenAI(base_url=base_url, api_key="none")
+    response = await client.chat.completions.create(
+        model=model,
         messages=[
             {"role": "system", "content": system},
             {"role": "user", "content": user},
@@ -100,7 +126,6 @@ async def call_local_llm(system: str, user: str) -> str:
         max_tokens=2048,
         temperature=0.3,
     )
-    await client.close()
     return response.choices[0].message.content or ""
 
 
